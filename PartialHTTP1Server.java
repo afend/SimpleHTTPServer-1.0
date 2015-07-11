@@ -11,6 +11,7 @@ import java.util.*;
 
 public class PartialHTTP1Server {
 	public static void main(String[] args) throws Exception {
+		int port = 3456; //randomly assigned number chosen
 		boolean serverRunning = true;
 		
 		if(args.length == 1) {
@@ -83,7 +84,7 @@ class ClientServiceThread extends Thread {
 		//Status code (200, 404, etc)
 		String statusCode = "";
 		//HTTP protocol (version)
-		String versionUse = "HTTP/0.8";
+		String versionUse = "HTTP/X";
 		//Type of Data needed (text/plain, etc
 		String contentType = ""; //example can be text/plain 
 		
@@ -113,12 +114,14 @@ class ClientServiceThread extends Thread {
                
 					//split commandStr into two sections
 					String[] parts = cmdStr.split("\\s+");
-               
-					if(parts.length == 2) {
+					
+					//now requires 3 
+					if(parts.length == 3) {
 						//parts[0] = Command (GET, PUT, etc)
 						//parts[1] = Resource (file name)
+						//parts[2] = HTTP version (HTTP/0.8 <= x <= HTTP/1.0)
 						//currentDirectory is the directory that one is working in (where the server is current running)
-						String checkFileStr = currentDir + parts[(parts.length-1)];
+						String checkFileStr = currentDir + parts[(parts.length-2)];
                   
 						//Check if file exist
 						File tempFile = new File(checkFileStr);
@@ -127,19 +130,18 @@ class ClientServiceThread extends Thread {
 							String commandSent = parts[0];
 							boolean isValidCommand = false;
 					
-							if(commandSent.equals("GET")) {
+							if(commandSent.equals("GET") || commandSent.equals("POST")) {
 								//200 OK - - read the file back
 								statusCode = "200";
 								isValidCommand = true;
                     		} else {
 							/*
 								Since it is not implemented, check to see if it matches any of the following:
-								1) POST
-								2) DELETE
-								3) PUT
+								1) DELETE
+								2) PUT
                         	*/
 							//both will still become false for isValidCommand
-								if (commandSent.equals("POST") || commandSent.equals("DELETE") || commandSent.equals("PUT")) {
+								if (commandSent.equals("DELETE") || commandSent.equals("PUT")) {
 									//valid but not implemented so use 501 Not Implemented Message
 									//501 Not Implemented
 									statusCode = "501";
@@ -159,6 +161,12 @@ class ClientServiceThread extends Thread {
 					 			if(tempFile.canRead()) {
 					 				try {
 					 					String content = null;
+					 					/* EXAMPLE RESPONSE TEMPLATE
+						 				 * HTTP/1.0 <status code> <explanation>
+						 				 * <response head>
+						 				 * (new line)
+						 				 * <response body>
+					 					 */
 					 					out.print(statusCode + " OK");
 					 					out.println();
 					 					out.println();
