@@ -11,7 +11,6 @@ import java.util.*;
 
 public class PartialHTTP1Server {
 	public static void main(String[] args) throws Exception {
-		int port = 1234; //randomly assigned number chosen
 		boolean serverRunning = true;
 		
 		if(args.length == 1) {
