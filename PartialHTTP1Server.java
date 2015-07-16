@@ -1,3 +1,5 @@
+package model;
+
 /*
  * Adam Fendler & Matt Eder
  * Internet Technology
@@ -8,6 +10,7 @@ import java.net.*;
 import java.util.regex.*;
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.*;
 
 public class PartialHTTP1Server {
 	public static void main(String[] args) throws Exception {
@@ -121,6 +124,10 @@ class ClientServiceThread extends Thread {
 						//parts[1] = Resource (file name)
 						//parts[2] = HTTP version (HTTP/0.8 <= x <= HTTP/1.0)
 						//currentDirectory is the directory that one is working in (where the server is current running)
+						
+						String[] HTTPversion = parts[2].split("/");
+						float HTTP = Float.parseFloat(HTTPversion[1]);
+				
 						String checkFileStr = currentDir + parts[(parts.length-2)];
                   
 						//Check if file exist
@@ -129,11 +136,21 @@ class ClientServiceThread extends Thread {
 							//valid file - - checks what command was sent (parts[0])
 							String commandSent = parts[0];
 							boolean isValidCommand = false;
+							boolean isValidVersion = true;
 					
-							if(commandSent.equals("GET") || commandSent.equals("POST")) {
-								//200 OK - - read the file back
-								statusCode = "200";
-								isValidCommand = true;
+							if (commandSent.equals("GET") || commandSent.equals("POST")) {
+								if (validateHTTPVersion(HTTP) == true) {
+									//200 OK - - read the file back
+									statusCode = "200";
+									isValidCommand = true;
+									versionUse = parts[2];
+								} else {
+									//505 HTTP Version Not Supported
+									statusCode = "505";
+									isValidCommand = true;
+									isValidVersion = false;
+								}
+								
                     		} else {
 							/*
 								Since it is not implemented, check to see if it matches any of the following:
@@ -156,7 +173,7 @@ class ClientServiceThread extends Thread {
                      		}
                      
 					 		//200 OK - - then read file back
-					 		if(isValidCommand) {
+					 		if(isValidCommand && isValidVersion) {
 					 			statusCode = "200";
 					 			if(tempFile.canRead()) {
 					 				try {
@@ -191,8 +208,9 @@ class ClientServiceThread extends Thread {
 						   				//e.printStackTrace();
                            			}
                         		} else {
-									statusCode = "500";
-									out.print(statusCode + " Internal Error");
+                        			// 403 Forbidden
+									statusCode = "403";
+									out.print(statusCode + " Forbidden");
 									out.println();
                         		}
                      		}
@@ -237,4 +255,12 @@ class ClientServiceThread extends Thread {
          	}
       	}
    	}
+
+	private boolean validateHTTPVersion(float ver) {
+		if (ver > 1.0) {
+		     return false;
+		} else {
+			return true;
+		}
+	}
 }
