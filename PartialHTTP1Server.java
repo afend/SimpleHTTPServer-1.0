@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.text.SimpleDateFormat;
 
 public class PartialHTTP1Server {
 	public static void main(String[] args) throws Exception {
@@ -155,7 +156,7 @@ class ClientServiceThread extends Thread {
 						//currentDirectory is the directory that one is working in (where the server is current running)
 
 						String[] HTTPversion = parts[2].split("/");
-						float HTTP = Float.parseFloat(HTTPversion[2]);
+						float HTTP = Float.parseFloat(HTTPversion[1]);
 
 						String checkFileStr = currentDir + parts[(parts.length - 2)];
 						Path fp = Paths.get(checkFileStr);
@@ -179,13 +180,12 @@ class ClientServiceThread extends Thread {
 									statusCode = "505";
 									isValidCommand = true;
 									isValidVersion = false;
+                                                                        out.print(statusCode + " HTTP Version Not Supported");
 								}
 							} else {
-								/*
-								Since it is not implemented, check to see if it matches any of the following:
-								1) DELETE
-								2) PUT
-                        	*/
+								// Since it is not implemented, check to see if it matches any of the following:
+								// 1) DELETE
+								// 2) PUT
 								//both will still become false for isValidCommand
 								if (commandSent.equals("DELETE") || commandSent.equals("PUT")) {
 									//valid but not implemented so use 501 Not Implemented Message
@@ -206,19 +206,29 @@ class ClientServiceThread extends Thread {
 								statusCode = "200";
 								if (tempFile.canRead()) {
 									try {
-										/* EXAMPLE RESPONSE TEMPLATE
+                                                                                Date lastModified = new Date(tempFile.lastModified()); 
+                                                                                SimpleDateFormat formatter = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US);
+										
+                                                                                /* EXAMPLE RESPONSE TEMPLATE
 										 * HTTP/1.0 <status code> <explanation>
 										 * <response head>
 										 * (new line)
 										 * <response body>
+                                                                                 * Allow, Content-Encoding, Content-Length[x], Content-Type[x], Expires[x], Last-Modified[x]
 										 */
-										out.print(version_use + " " + statusCode + " OK");
-										//fp.myprobeContentType();
+										out.println(version_use + " " + statusCode + " OK");
+                                                                                out.println(CONTENT_TYPE + ": " + contentType(parts[1]));
+                                                                                out.println(CONTENT_LENGTH + ": " + tempFile.length());
+                                                                                out.println(LAST_MODIFIED + ": " + lastModified);
+                                                                                out.println(CONTENT_ENCODING + ": " + "identity");
+                                                                                out.println(ALLOW + ": " + "GET, POST, HEAD");
+                                                                                out.println(EXPIRES + ": " + getExpirationDate());
+                                                                       
 										out.println();
-										out.println();
+                                                                                
 										FileInputStream fileStream = new FileInputStream(tempFile);
 										BufferedReader bFileReader = new BufferedReader(new InputStreamReader(fileStream));
-
+                                                                                
 										String tmpLine;
 										while ((tmpLine = bFileReader.readLine()) != null) {
 											if (tmpLine.length() == 0) {
@@ -290,4 +300,46 @@ class ClientServiceThread extends Thread {
 			return true;
 		}
 	}
+        
+        private static String contentType(String fileName) {
+            if (fileName.endsWith(".htm") || fileName.endsWith(".html")) {
+                return "text/html";
+            }
+            if (fileName.endsWith(".jpg") || fileName.endsWith(".jpe") || fileName.endsWith(".jpeg")) {
+                return "image/jpeg";
+            }
+            if (fileName.endsWith(".gif")) {
+                return "image/gif";
+            }
+            if (fileName.endsWith(".png")) {
+                return "image/png";
+            }
+            if (fileName.endsWith(".txt")) {
+                return "text/plain";
+            }
+            if (fileName.endsWith(".pdf")) {
+                return "application/pdf";
+            }
+            if (fileName.endsWith(".gz") || fileName.endsWith(".gzip")) {
+                return "application/x-gzip";
+            }
+            if (fileName.endsWith(".zip")) {
+                return "application/zip";
+            }
+            if (fileName.endsWith(".tar")) {
+                return "application/x-tar";
+            }
+
+            return "application/octet-stream";
+        }
+        
+        private static String getExpirationDate() {
+            int days = 2;
+            Calendar c = Calendar.getInstance();
+            c.setTime( new Date());
+            c.add(Calendar.DATE, days);
+            String o = new SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss zzz").format(c.getTime());
+            
+            return o;
+        }
 }
