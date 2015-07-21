@@ -53,7 +53,7 @@ public class PartialHTTP1Server {
 
 	private static boolean validatePort(String num) {
 		Pattern pattern = Pattern.compile("[0-9]+"); //checks if it is a digit
-		if (!pattern.matcher(num).matches()) {
+		if (pattern.matcher(num).matches()) {
 			//now check to see if it is in the range of 1-65535 (valid port number) but we want above 1024
 			int portNum = Integer.parseInt(num);
 			if (portNum > 1024 && portNum <= 65535) {
@@ -292,15 +292,25 @@ class ClientServiceThread extends Thread {
 			}
 		}
 	}
-
+            
+        /** 
+         * This function returns a boolean value depending on if the float is less than or equal to 1.0.
+         * @return Boolean
+         * 
+         */
 	private boolean validateHTTPVersion(float ver) {
-		if (ver > 1.0) {
+		if (ver >= 1.0) {
 			return false;
 		} else {
 			return true;
 		}
 	}
         
+        /** 
+         * This function returns the Content-Type of the file. It accepts one String parameter.
+         * @return Content-Type
+         * 
+         */
         private static String contentType(String fileName) {
             if (fileName.endsWith(".htm") || fileName.endsWith(".html")) {
                 return "text/html";
@@ -333,6 +343,12 @@ class ClientServiceThread extends Thread {
             return "application/octet-stream";
         }
         
+        
+        /** 
+         * This function returns the Expires date of the file which is set to expire 48 hours (2 days) later.
+         * @return Expires
+         * 
+         */
         private static String getExpirationDate() {
             int days = 2;
             Calendar c = Calendar.getInstance();
