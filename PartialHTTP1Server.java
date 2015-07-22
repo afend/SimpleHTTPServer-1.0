@@ -8,11 +8,11 @@ import java.net.*;
 import java.util.regex.*;
 import java.io.*;
 import java.util.*;
-import java.util.concurrent.*;
-import java.nio.file.Files;
+//import java.util.concurrent.*;
+//import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
+//import java.nio.file.StandardCopyOption;
 import java.text.SimpleDateFormat;
 
 public class PartialHTTP1Server {
@@ -102,7 +102,7 @@ class ClientServiceThread extends Thread {
 	public static final String SERVER = "Server";
 	public static final String USER_AGENT = "User-Agent";
 	public static final String WWW_AUTHENTICATE = "WWW-Authenticate";
-        public static final TimeZone GMT_ZONE = TimeZone.getTimeZone("GMT");
+	public static final TimeZone GMT_ZONE = TimeZone.getTimeZone("GMT");
 
 	public void run() {
 		BufferedReader in = null;
@@ -181,15 +181,14 @@ class ClientServiceThread extends Thread {
 									statusCode = "505";
 									isValidCommand = true;
 									isValidVersion = false;
-                                                                        out.println(statusCode + " HTTP Version Not Supported");
+									out.println(statusCode + " HTTP Version Not Supported");
 								}
 							} else {
 								// Since it is not implemented, check to see if it matches any of the following:
 								// 1) DELETE
 								// 2) PUT
 								//both will still become false for isValidCommand
-								if (commandSent.equals("DELETE") || commandSent.equals("PUT") 
-                                                                        || commandSent.equals("LINK") || commandSent.equals("UNLINK")) {
+								if (commandSent.equals("DELETE") || commandSent.equals("PUT") || commandSent.equals("LINK") || commandSent.equals("UNLINK")) {
 									//valid but not implemented so use 501 Not Implemented Message
 									//501 Not Implemented
 									statusCode = "501";
@@ -208,112 +207,118 @@ class ClientServiceThread extends Thread {
 								statusCode = "200";
 								if (tempFile.canRead()) {
 									try {
-                                                                                Date lastModified = new Date(tempFile.lastModified()); 
-                                                                                SimpleDateFormat formatter = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z");
-                                                                                formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+										Date lastModified = new Date(tempFile.lastModified());
+										SimpleDateFormat formatter = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z");
+										formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
 										String ct = contentType(parts[1]);
-                                                                                String ex = getExpirationDate();
-                                                                                /* EXAMPLE RESPONSE TEMPLATE
-										 * HTTP/1.0 <status code> <explanation>
-										 * <response head>
-										 * (new line)
-										 * <response body>
-                                                                                 * Allow[x], Content-Encoding[x], Content-Length[x], Content-Type[x], Expires[x], Last-Modified[x]
-										 */
-                                                                                if (ct.equals("application/pdf")) {
-                                                                                    
-                                                                                } else if (ct.equals("text/html") || ct.equals("text/plain")) {
-                                                                                    
-                                                                                } else if (ct.equals("image/jpeg") || ct.equals("image/gif") || ct.equals("image/png")) {
-                                                                                    
-                                                                                } else if (ct.equals("application/x-gzip") || ct.equals("application/zip") || ct.equals("application/x-tar")) {
-                                                                                    
-                                                                                } else { //"application/octet-stream"
-                                                                                    
-                                                                                }
-                                                                                
-										out.println(version_use + " " + statusCode + " OK");
-                                                                                out.println(CONTENT_TYPE + ": " + ct);
-                                                                                out.println(CONTENT_LENGTH + ": " + tempFile.length());
-                                                                                out.println(LAST_MODIFIED + ": " + lastModified);
-                                                                                out.println(CONTENT_ENCODING + ": " + "identity");
-                                                                                out.println(ALLOW + ": " + "GET, POST, HEAD");
-                                                                                out.println(EXPIRES + ": " + ex);
-                                                                       
-										out.println();
-                                                                                
-										FileInputStream fileStream = new FileInputStream(tempFile);
-										BufferedReader bFileReader = new BufferedReader(new InputStreamReader(fileStream));
-                                                                                
-										String tmpLine;
-										while ((tmpLine = bFileReader.readLine()) != null) {
-											if (tmpLine.length() == 0) {
-												break;
-											}
-											out.print(tmpLine + "\r\n");
-										}
+										String ex = getExpirationDate();
+                                                                            /* EXAMPLE RESPONSE TEMPLATE
+                                                                             * HTTP/1.0 <status code> <explanation>
+                                                                             * <response head>
+                                                                             * (new line)
+                                                                             * <response body>
+                                                                             * Allow[x], Content-Encoding[x], Content-Length[x], Content-Type[x], Expires[x], Last-Modified[x]
+                                                                             */
+                                                                            switch (ct) {
+                                                                                case "application/pdf":
+                                                                                case "application/x-gzip":
+                                                                                case "application/zip":
+                                                                                case "application/x-tar":
+                                                                                    break;
+                                                                                case "text/html":
+                                                                                case "text/plain":
+                                                                                    break;
+                                                                                case "image/jpeg":
+                                                                                case "image/gif":
+                                                                                case "image/png":
+                                                                                    break;
+                                                                                //"application/octet-stream"
+                                                                                default:
+                                                                                    break;
+                                                                            }
 
-										out.println();
-										out.println();
-										bFileReader.close();
-									} catch (Exception e) {
-										statusCode = "500";
-										out.println(statusCode + " Internal Error");
-										out.println();
-										//e.printStackTrace();
-									}
-								} else {
-									// 403 Forbidden
-									statusCode = "403";
-									out.println(statusCode + " Forbidden");
-									out.println();
-								}
-							}
-						} else {
-							//404 Not Found
-							statusCode = "404";
-							out.println(statusCode + " Not Found");
-							out.println();
-						}
-					} else {
-						//400 Bad Request
-						statusCode = "400";
-						out.println("400 Bad Request");
-						out.println();
-					}
+                                                                            out.println(version_use + " " + statusCode + " OK");
+                                                                            out.println(CONTENT_TYPE + ": " + ct);
+                                                                            out.println(CONTENT_LENGTH + ": " + tempFile.length());
+                                                                            out.println(LAST_MODIFIED + ": " + lastModified);
+                                                                            out.println(CONTENT_ENCODING + ": " + "identity");
+                                                                            out.println(ALLOW + ": " + "GET, POST, HEAD");
+                                                                            out.println(EXPIRES + ": " + ex);
 
-					//out.println(clientCommand);
-					out.flush();
-				}
-			}
-		} catch (Exception e) {
-			System.out.println("Error when using buffer reader and writer.");
-			e.printStackTrace();
-		} finally {
-			try {
-				Thread.sleep(500); in .close();
-				out.close();
-				clientSocket.close();
-				System.out.println("Client " + clientID + " has just disconnected.");
-			} catch (InterruptedException ie) {
-				System.out.println("Error waiting 500 miliseconds (0.5 seconds).");
-				try { in .close();
-					out.close();
-					clientSocket.close();
-				} catch (IOException e) {
-					System.out.println("Something went wrong closing the Client Socket.\n");
-				}
-			} catch (IOException e) {
-				System.out.println("Something went wrong closing the Client Socket.\n");
-			}
-		}
-	}
-            
-        /** 
-         * This function returns a boolean value depending on if the float is less than or equal to 1.0.
-         * @return Boolean
-         * 
-         */
+                                                                            out.println();
+
+                                                                            FileInputStream fileStream = new FileInputStream(tempFile);
+                                                                            BufferedReader bFileReader = new BufferedReader(new InputStreamReader(fileStream));
+
+                                                                            String tmpLine;
+                                                                            while ((tmpLine = bFileReader.readLine()) != null) {
+                                                                                    if (tmpLine.length() == 0) {
+                                                                                            break;
+                                                                                    }
+                                                                                    out.print(tmpLine + "\r\n");
+                                                                            }
+
+                                                                            out.println();
+                                                                            out.println();
+                                                                            bFileReader.close();
+                                                                    } catch (Exception e) {
+                                                                            statusCode = "500";
+                                                                            out.println(statusCode + " Internal Error");
+                                                                            out.println();
+                                                                            //e.printStackTrace();
+                                                                    }
+                                                            } else {
+                                                                    // 403 Forbidden
+                                                                    statusCode = "403";
+                                                                    out.println(statusCode + " Forbidden");
+                                                                    out.println();
+                                                            }
+                                                    }
+                                            } else {
+                                                    //404 Not Found
+                                                    statusCode = "404";
+                                                    out.println(statusCode + " Not Found");
+                                                    out.println();
+                                            }
+                                    } else {
+                                            //400 Bad Request
+                                            statusCode = "400";
+                                            out.println("400 Bad Request");
+                                            out.println();
+                                    }
+
+                                    //out.println(clientCommand);
+                                    out.flush();
+                            }
+                    }
+            } catch (Exception e) {
+                    System.out.println("Error when using buffer reader and writer.");
+                    e.printStackTrace();
+            } finally {
+                    try {
+                            Thread.sleep(500); in .close();
+                            out.close();
+                            clientSocket.close();
+                            System.out.println("Client " + clientID + " has just disconnected.");
+                    } catch (InterruptedException ie) {
+                            System.out.println("Error waiting 500 miliseconds (0.5 seconds).");
+                            try { in .close();
+                                    out.close();
+                                    clientSocket.close();
+                            } catch (IOException e) {
+                                    System.out.println("Something went wrong closing the Client Socket.\n");
+                            }
+                    } catch (IOException e) {
+                            System.out.println("Something went wrong closing the Client Socket.\n");
+                    }
+            }
+    }
+
+	/** 
+	 * This function returns a boolean value depending on if the float is less than or equal to 1.0.
+	 * @return Boolean
+	 * 
+	 */
 	private boolean validateHTTPVersion(float ver) {
 		if (ver >= 1.0) {
 			return false;
@@ -321,72 +326,72 @@ class ClientServiceThread extends Thread {
 			return true;
 		}
 	}
-        
-        /** 
-         * This function returns the Content-Type of the file. It accepts one String parameter.
-         * @return Content-Type
-         * 
-         */
-        private static String contentType(String fileName) {
-            if (fileName.endsWith(".htm") || fileName.endsWith(".html")) {
-                return "text/html";
-            }
-            if (fileName.endsWith(".jpg") || fileName.endsWith(".jpe") || fileName.endsWith(".jpeg")) {
-                return "image/jpeg";
-            }
-            if (fileName.endsWith(".gif")) {
-                return "image/gif";
-            }
-            if (fileName.endsWith(".png")) {
-                return "image/png";
-            }
-            if (fileName.endsWith(".txt")) {
-                return "text/plain";
-            }
-            if (fileName.endsWith(".pdf")) {
-                return "application/pdf";
-            }
-            if (fileName.endsWith(".gz") || fileName.endsWith(".gzip")) {
-                return "application/x-gzip";
-            }
-            if (fileName.endsWith(".zip")) {
-                return "application/zip";
-            }
-            if (fileName.endsWith(".tar")) {
-                return "application/x-tar";
-            }
 
-            return "application/octet-stream";
-        }
-        
-        
-        /** 
-         * This function returns the Expires date of the file which is set to expire 48 hours (2 days) later.
-         * @return Expires
-         * 
-         */
-        private static String getExpirationDate() {
-            /**
-             * This will be used in the future, but for now the tester wants it hard coded.
-             * "Expires: a future date"
-             * int days = 2;
-             * Calendar c = Calendar.getInstance();
-             * c.setTime( new Date());
-             * c.add(Calendar.DATE, days);
-             * String o = new SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss zzz").format(c.getTime());
-             * 
-             */
-            String ct = "a future date";
-            return ct;
-        }
-        
-        private static String getContentEncoding() {
-            String ce = "identity"; 
-            return ce;
-        }
-        
-        private static String getAllow() {
-            String al = "GET, POST, HEAD";
-            return al; 
-        }
+	/** 
+	 * This function returns the Content-Type of the file. It accepts one String parameter.
+	 * @return Content-Type
+	 * 
+	 */
+	private static String contentType(String fileName) {
+		if (fileName.endsWith(".htm") || fileName.endsWith(".html")) {
+			return "text/html";
+		}
+		if (fileName.endsWith(".jpg") || fileName.endsWith(".jpe") || fileName.endsWith(".jpeg")) {
+			return "image/jpeg";
+		}
+		if (fileName.endsWith(".gif")) {
+			return "image/gif";
+		}
+		if (fileName.endsWith(".png")) {
+			return "image/png";
+		}
+		if (fileName.endsWith(".txt")) {
+			return "text/plain";
+		}
+		if (fileName.endsWith(".pdf")) {
+			return "application/pdf";
+		}
+		if (fileName.endsWith(".gz") || fileName.endsWith(".gzip")) {
+			return "application/x-gzip";
+		}
+		if (fileName.endsWith(".zip")) {
+			return "application/zip";
+		}
+		if (fileName.endsWith(".tar")) {
+			return "application/x-tar";
+		}
+
+		return "application/octet-stream";
+	}
+
+
+	/** 
+	 * This function returns the Expires date of the file which is set to expire 48 hours (2 days) later.
+	 * @return Expires
+	 * 
+	 */
+	private static String getExpirationDate() {
+		/**
+		 * This will be used in the future, but for now the tester wants it hard coded.
+		 * "Expires: a future date"
+		 * int days = 2;
+		 * Calendar c = Calendar.getInstance();
+		 * c.setTime( new Date());
+		 * c.add(Calendar.DATE, days);
+		 * String o = new SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss zzz").format(c.getTime());
+		 * 
+		 */
+		String ct = "a future date";
+		return ct;
+	}
+
+	private static String getContentEncoding() {
+		String ce = "identity";
+		return ce;
+	}
+
+	private static String getAllow() {
+		String al = "GET, POST, HEAD";
+		return al;
+	}
 }
