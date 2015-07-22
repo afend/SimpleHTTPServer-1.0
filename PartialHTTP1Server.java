@@ -14,6 +14,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 //import java.nio.file.StandardCopyOption;
 import java.text.SimpleDateFormat;
+import java.nio.file.Files;
+import java.nio.file.FileSystems;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 public class PartialHTTP1Server {
 	public static void main(String[] args) throws Exception {
@@ -80,6 +84,11 @@ class ClientServiceThread extends Thread {
 	ClientServiceThread(Socket s, int i) {
 		clientSocket = s;
 		clientID = i;
+		try {
+			clientSocket.setSoTimeout(3000);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 	}
 
 	/**
@@ -88,6 +97,7 @@ class ClientServiceThread extends Thread {
 	 */
 	public static final String ALLOW = "Allow";
 	public static final String AUTHORIZATION = "Authorization";
+	public static final String ACCEPT_CHARSET = "Accept-Charset";
 	public static final String CONTENT_ENCODING = "Content-Encoding";
 	public static final String CONTENT_LENGTH = "Content-Length";
 	public static final String CONTENT_TYPE = "Content-Type";
@@ -127,16 +137,16 @@ class ClientServiceThread extends Thread {
 			out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
 
 			try {
-				clientSocket.setSoTimeout(3000);
+				clientSocket.setSoTimeout(15000);
 			} catch (IOException ioe) {
 				statusCode = "408";
-				out.print(statusCode + " Request Timeout");
-				out.println();
+				out.print(statusCode + " Request Timeout\r\n");
+				out.print("\r\n");
 			}
 
 			while (running) {
 
-				String clientCommand = in .readLine(); //reads single line
+				String clientCommand = in .readLine();
 				System.out.println(clientCommand);
 
 				if (clientCommand.equalsIgnoreCase("QUIT")) {
@@ -181,7 +191,8 @@ class ClientServiceThread extends Thread {
 									statusCode = "505";
 									isValidCommand = true;
 									isValidVersion = false;
-									out.println(statusCode + " HTTP Version Not Supported");
+									out.write("HTTP/1.0 " + statusCode + " HTTP Version Not Supported\r\n");
+									out.write("\r\n");
 								}
 							} else {
 								// Since it is not implemented, check to see if it matches any of the following:
@@ -192,127 +203,102 @@ class ClientServiceThread extends Thread {
 									//valid but not implemented so use 501 Not Implemented Message
 									//501 Not Implemented
 									statusCode = "501";
-									out.println(statusCode + " Not Implemented");
-									out.println();
+									out.write("HTTP/1.0 " + statusCode + " Not Implemented\r\n");
+									out.println("\r\n");
 								} else {
 									//not valid (mistyped command)
 									statusCode = "400";
-									out.println(statusCode + " Bad Request");
-									out.println();
+									out.write("HTTP/1.0 " + statusCode + " Bad Request\r\n");
+									out.println("\r\n");
 								}
 							}
 
 							//200 OK - - then read file back
 							if (isValidCommand && isValidVersion) {
 								statusCode = "200";
-								if (tempFile.canRead()) {
+								boolean isFileReadable = Files.isReadable(FileSystems.getDefault().getPath(tempFile.getAbsolutePath()));
+								if (tempFile.canRead() && isFileReadable) {
 									try {
-										Date lastModified = new Date(tempFile.lastModified());
+										String lastModified = "";
+										Date lastModified2 = new Date(tempFile.lastModified());
 										SimpleDateFormat formatter = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z");
 										formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+										String Date2Str = formatter.format(lastModified2);
+										lastModified = Date2Str;
 										String ct = contentType(parts[1]);
-										String ex = getExpirationDate();
-                                                                            /* EXAMPLE RESPONSE TEMPLATE
-                                                                             * HTTP/1.0 <status code> <explanation>
-                                                                             * <response head>
-                                                                             * (new line)
-                                                                             * <response body>
-                                                                             * Allow[x], Content-Encoding[x], Content-Length[x], Content-Type[x], Expires[x], Last-Modified[x]
-                                                                             */
-                                                                            switch (ct) {
-                                                                                case "application/pdf":
-                                                                                case "application/x-gzip":
-                                                                                case "application/zip":
-                                                                                case "application/x-tar":
-                                                                                    break;
-                                                                                case "text/html":
-                                                                                case "text/plain":
-                                                                                    break;
-                                                                                case "image/jpeg":
-                                                                                case "image/gif":
-                                                                                case "image/png":
-                                                                                    break;
-                                                                                //"application/octet-stream"
-                                                                                default:
-                                                                                    break;
-                                                                            }
+										String ex = formatter.format(getExpirationDate());
+										/* EXAMPLE RESPONSE TEMPLATE
+										 * HTTP/1.0 <status code> <explanation>
+										 * <response head>
+										 * (new line)
+										 * <response body>
+										 * Allow[x], Content-Encoding[x], Content-Length[x], Content-Type[x], Expires[x], Last-Modified[x]
+										 */
+										long bytes = tempFile.length();
+										out.write(version_use + " " + statusCode + " OK" + "\r\n");
+										out.write(CONTENT_TYPE + ": " + ct + "\r\n");
+										out.write(CONTENT_LENGTH + ": " + bytes + "\r\n");
+										out.write(LAST_MODIFIED + ": " + lastModified + "\r\n");
+										out.write(CONTENT_ENCODING + ": " + "identity" + "\r\n");
+										out.write(ALLOW + ": " + "GET, POST, HEAD" + "\r\n");
+										out.write(EXPIRES + ": " + ex + "\r\n");
+										out.write("\r\n");
+										System.out.println("BYTES: " + (int) bytes + " || bytes: " + bytes);
+										//String gCheckSum = getChecksum(tempFile, (int)bytes);
+										out.write(gCheckSum + "\r\n");
+										//out.write("\r\n");
+									} catch (Exception e) {
+										statusCode = "500";
+										out.write("HTTP/1.0 " + statusCode + " Internal Error" + "\r\n");
+										out.write("\r\n");
+										//e.printStackTrace();
+									}
+								} else {
+									// 403 Forbidden
+									statusCode = "403";
+									out.write("HTTP/1.0 " + statusCode + " Forbidden" + "\r\n");
+									out.write("\r\n");
+								}
+							}
+						} else {
+							//404 Not Found
+							statusCode = "404";
+							out.write("HTTP/1.0 " + statusCode + " Not Found" + "\r\n");
+							out.write("\r\n");
+						}
+					} else {
+						//400 Bad Request
+						statusCode = "400";
+						out.write("HTTP/1.0 " + statusCode + " Bad Request" + "\r\n");
+						out.write("\r\n");
+					}
 
-                                                                            out.println(version_use + " " + statusCode + " OK");
-                                                                            out.println(CONTENT_TYPE + ": " + ct);
-                                                                            out.println(CONTENT_LENGTH + ": " + tempFile.length());
-                                                                            out.println(LAST_MODIFIED + ": " + lastModified);
-                                                                            out.println(CONTENT_ENCODING + ": " + "identity");
-                                                                            out.println(ALLOW + ": " + "GET, POST, HEAD");
-                                                                            out.println(EXPIRES + ": " + ex);
-
-                                                                            out.println();
-
-                                                                            FileInputStream fileStream = new FileInputStream(tempFile);
-                                                                            BufferedReader bFileReader = new BufferedReader(new InputStreamReader(fileStream));
-
-                                                                            String tmpLine;
-                                                                            while ((tmpLine = bFileReader.readLine()) != null) {
-                                                                                    if (tmpLine.length() == 0) {
-                                                                                            break;
-                                                                                    }
-                                                                                    out.print(tmpLine + "\r\n");
-                                                                            }
-
-                                                                            out.println();
-                                                                            out.println();
-                                                                            bFileReader.close();
-                                                                    } catch (Exception e) {
-                                                                            statusCode = "500";
-                                                                            out.println(statusCode + " Internal Error");
-                                                                            out.println();
-                                                                            //e.printStackTrace();
-                                                                    }
-                                                            } else {
-                                                                    // 403 Forbidden
-                                                                    statusCode = "403";
-                                                                    out.println(statusCode + " Forbidden");
-                                                                    out.println();
-                                                            }
-                                                    }
-                                            } else {
-                                                    //404 Not Found
-                                                    statusCode = "404";
-                                                    out.println(statusCode + " Not Found");
-                                                    out.println();
-                                            }
-                                    } else {
-                                            //400 Bad Request
-                                            statusCode = "400";
-                                            out.println("400 Bad Request");
-                                            out.println();
-                                    }
-
-                                    //out.println(clientCommand);
-                                    out.flush();
-                            }
-                    }
-            } catch (Exception e) {
-                    System.out.println("Error when using buffer reader and writer.");
-                    e.printStackTrace();
-            } finally {
-                    try {
-                            Thread.sleep(500); in .close();
-                            out.close();
-                            clientSocket.close();
-                            System.out.println("Client " + clientID + " has just disconnected.");
-                    } catch (InterruptedException ie) {
-                            System.out.println("Error waiting 500 miliseconds (0.5 seconds).");
-                            try { in .close();
-                                    out.close();
-                                    clientSocket.close();
-                            } catch (IOException e) {
-                                    System.out.println("Something went wrong closing the Client Socket.\n");
-                            }
-                    } catch (IOException e) {
-                            System.out.println("Something went wrong closing the Client Socket.\n");
-                    }
-            }
-    }
+					//out.println(clientCommand);
+					out.flush();
+				}
+			}
+		} catch (Exception e) {
+			System.out.println("Error when using buffer reader and writer.");
+			e.printStackTrace();
+		} finally {
+			try {
+				Thread.sleep(500); in .close();
+				out.close();
+				clientSocket.close();
+				System.out.println("Client " + clientID + " has just disconnected.");
+			} catch (InterruptedException ie) {
+				System.out.println("Error waiting 500 miliseconds (0.5 seconds).");
+				try { in .close();
+					out.close();
+					clientSocket.close();
+				} catch (IOException e) {
+					System.out.println("Something went wrong closing the Client Socket.\n");
+				}
+			} catch (IOException e) {
+				System.out.println("Something went wrong closing the Client Socket.\n");
+			}
+		}
+	}
 
 	/** 
 	 * This function returns a boolean value depending on if the float is less than or equal to 1.0.
@@ -320,11 +306,49 @@ class ClientServiceThread extends Thread {
 	 * 
 	 */
 	private boolean validateHTTPVersion(float ver) {
-		if (ver >= 1.0) {
+		if (ver > 1.0) {
 			return false;
 		} else {
 			return true;
 		}
+	}
+
+	private static String getChecksum(File fileName, int n) {
+		try {
+			MessageDigest md = MessageDigest.getInstance("SHA-256");
+			FileInputStream fis = new FileInputStream(fileName.getAbsolutePath());
+
+			byte[] dataBytes = new byte[n];
+			int nread = 0;
+			while ((nread = fis.read(dataBytes)) != -1) {
+				md.update(dataBytes, 0, nread);
+			}
+			byte[] mdbytes = md.digest();
+
+			StringBuffer sb = new StringBuffer();
+			for (int i = 0; i < mdbytes.length; i++) {
+				sb.append(Integer.toString((mdbytes[i] & 0xff) + 0x100, 16).substring(1));
+			}
+			return sb.toString();
+		} catch (NoSuchAlgorithmException nsae) {
+			//nsae.printStackTrace();
+		} catch (FileNotFoundException fnfe) {
+			//fnfe.printStackTrace();
+		} catch (IOException ioe) {
+			//ioe.printStackTrace();
+		}
+		return "";
+	}
+
+	private static String sha256(String input) throws NoSuchAlgorithmException {
+		MessageDigest mDigest = MessageDigest.getInstance("SHA256");
+		byte[] result = mDigest.digest(input.getBytes());
+		StringBuffer sb = new StringBuffer();
+		for (int i = 0; i < result.length; i++) {
+			sb.append(Integer.toString((result[i] & 0xff) + 0x100, 16).substring(1));
+		}
+
+		return sb.toString();
 	}
 
 	/** 
@@ -370,18 +394,16 @@ class ClientServiceThread extends Thread {
 	 * @return Expires
 	 * 
 	 */
-	private static String getExpirationDate() {
+	private static Date getExpirationDate() {
 		/**
 		 * This will be used in the future, but for now the tester wants it hard coded.
 		 * "Expires: a future date"
-		 * int days = 2;
-		 * Calendar c = Calendar.getInstance();
-		 * c.setTime( new Date());
-		 * c.add(Calendar.DATE, days);
-		 * String o = new SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss zzz").format(c.getTime());
-		 * 
 		 */
-		String ct = "a future date";
+		int days = 2;
+		Calendar c = Calendar.getInstance();
+		c.setTime(new Date());
+		c.add(Calendar.DATE, days);
+		Date ct = c.getTime();
 		return ct;
 	}
 
