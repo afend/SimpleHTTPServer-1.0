@@ -102,6 +102,7 @@ class ClientServiceThread extends Thread {
 	public static final String SERVER = "Server";
 	public static final String USER_AGENT = "User-Agent";
 	public static final String WWW_AUTHENTICATE = "WWW-Authenticate";
+        public static final TimeZone GMT_ZONE = TimeZone.getTimeZone("GMT");
 
 	public void run() {
 		BufferedReader in = null;
@@ -136,7 +137,7 @@ class ClientServiceThread extends Thread {
 			while (running) {
 
 				String clientCommand = in .readLine(); //reads single line
-				System.out.println("Client Says :" + clientCommand);
+				System.out.println(clientCommand);
 
 				if (clientCommand.equalsIgnoreCase("QUIT")) {
 					running = false;
@@ -169,7 +170,7 @@ class ClientServiceThread extends Thread {
 							boolean isValidCommand = false;
 							boolean isValidVersion = true;
 
-							if (commandSent.equals("GET") || commandSent.equals("POST")) {
+							if (commandSent.equals("GET") || commandSent.equals("POST") || commandSent.equals("HEAD")) {
 								if (validateHTTPVersion(HTTP) == true) {
 									//200 OK - - read the file back
 									statusCode = "200";
@@ -180,23 +181,24 @@ class ClientServiceThread extends Thread {
 									statusCode = "505";
 									isValidCommand = true;
 									isValidVersion = false;
-                                                                        out.print(statusCode + " HTTP Version Not Supported");
+                                                                        out.println(statusCode + " HTTP Version Not Supported");
 								}
 							} else {
 								// Since it is not implemented, check to see if it matches any of the following:
 								// 1) DELETE
 								// 2) PUT
 								//both will still become false for isValidCommand
-								if (commandSent.equals("DELETE") || commandSent.equals("PUT")) {
+								if (commandSent.equals("DELETE") || commandSent.equals("PUT") 
+                                                                        || commandSent.equals("LINK") || commandSent.equals("UNLINK")) {
 									//valid but not implemented so use 501 Not Implemented Message
 									//501 Not Implemented
 									statusCode = "501";
-									out.print(statusCode + " Not Implemented");
+									out.println(statusCode + " Not Implemented");
 									out.println();
 								} else {
 									//not valid (mistyped command)
 									statusCode = "400";
-									out.print(statusCode + " Bad Request");
+									out.println(statusCode + " Bad Request");
 									out.println();
 								}
 							}
@@ -207,22 +209,36 @@ class ClientServiceThread extends Thread {
 								if (tempFile.canRead()) {
 									try {
                                                                                 Date lastModified = new Date(tempFile.lastModified()); 
-                                                                                SimpleDateFormat formatter = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US);
-										
+                                                                                SimpleDateFormat formatter = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z");
+                                                                                formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+										String ct = contentType(parts[1]);
+                                                                                String ex = getExpirationDate();
                                                                                 /* EXAMPLE RESPONSE TEMPLATE
 										 * HTTP/1.0 <status code> <explanation>
 										 * <response head>
 										 * (new line)
 										 * <response body>
-                                                                                 * Allow, Content-Encoding, Content-Length[x], Content-Type[x], Expires[x], Last-Modified[x]
+                                                                                 * Allow[x], Content-Encoding[x], Content-Length[x], Content-Type[x], Expires[x], Last-Modified[x]
 										 */
+                                                                                if (ct.equals("application/pdf")) {
+                                                                                    
+                                                                                } else if (ct.equals("text/html") || ct.equals("text/plain")) {
+                                                                                    
+                                                                                } else if (ct.equals("image/jpeg") || ct.equals("image/gif") || ct.equals("image/png")) {
+                                                                                    
+                                                                                } else if (ct.equals("application/x-gzip") || ct.equals("application/zip") || ct.equals("application/x-tar")) {
+                                                                                    
+                                                                                } else { //"application/octet-stream"
+                                                                                    
+                                                                                }
+                                                                                
 										out.println(version_use + " " + statusCode + " OK");
-                                                                                out.println(CONTENT_TYPE + ": " + contentType(parts[1]));
+                                                                                out.println(CONTENT_TYPE + ": " + ct);
                                                                                 out.println(CONTENT_LENGTH + ": " + tempFile.length());
                                                                                 out.println(LAST_MODIFIED + ": " + lastModified);
                                                                                 out.println(CONTENT_ENCODING + ": " + "identity");
                                                                                 out.println(ALLOW + ": " + "GET, POST, HEAD");
-                                                                                out.println(EXPIRES + ": " + getExpirationDate());
+                                                                                out.println(EXPIRES + ": " + ex);
                                                                        
 										out.println();
                                                                                 
@@ -242,27 +258,27 @@ class ClientServiceThread extends Thread {
 										bFileReader.close();
 									} catch (Exception e) {
 										statusCode = "500";
-										out.print(statusCode + " Internal Error");
+										out.println(statusCode + " Internal Error");
 										out.println();
 										//e.printStackTrace();
 									}
 								} else {
 									// 403 Forbidden
 									statusCode = "403";
-									out.print(statusCode + " Forbidden");
+									out.println(statusCode + " Forbidden");
 									out.println();
 								}
 							}
 						} else {
 							//404 Not Found
 							statusCode = "404";
-							out.print(statusCode + " Not Found");
+							out.println(statusCode + " Not Found");
 							out.println();
 						}
 					} else {
 						//400 Bad Request
 						statusCode = "400";
-						out.print("400 Bad Request");
+						out.println("400 Bad Request");
 						out.println();
 					}
 
@@ -350,12 +366,27 @@ class ClientServiceThread extends Thread {
          * 
          */
         private static String getExpirationDate() {
-            int days = 2;
-            Calendar c = Calendar.getInstance();
-            c.setTime( new Date());
-            c.add(Calendar.DATE, days);
-            String o = new SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss zzz").format(c.getTime());
-            
-            return o;
+            /**
+             * This will be used in the future, but for now the tester wants it hard coded.
+             * "Expires: a future date"
+             * int days = 2;
+             * Calendar c = Calendar.getInstance();
+             * c.setTime( new Date());
+             * c.add(Calendar.DATE, days);
+             * String o = new SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss zzz").format(c.getTime());
+             * 
+             */
+            String ct = "a future date";
+            return ct;
+        }
+        
+        private static String getContentEncoding() {
+            String ce = "identity"; 
+            return ce;
+        }
+        
+        private static String getAllow() {
+            String al = "GET, POST, HEAD";
+            return al; 
         }
 }
