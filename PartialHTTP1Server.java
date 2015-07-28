@@ -1,419 +1,277 @@
-/**
- * @author Adam Fendler
- * @author Matt Eder
- * Partial HTTP1Server
+/* Adam Fendler & Matthew Eder 
+ * Internet Technology CS352 Summer 2015 Rutgers
+ * Project 1: HTTP 1.0 Webserver
  */
-
-import java.net.*;
-import java.util.regex.*;
 import java.io.*;
-import java.util.*;
-//import java.util.concurrent.*;
-//import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-//import java.nio.file.StandardCopyOption;
+import java.net.*;
+import java.util.Date;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.nio.file.Files;
-import java.nio.file.FileSystems;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.util.regex.Pattern;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.TimeZone;
+import java.util.concurrent.*;
+
+import javax.activation.MimetypesFileTypeMap;
 
 public class PartialHTTP1Server {
 	public static void main(String[] args) throws Exception {
-		int port = 3456; //randomly assigned number chosen
-		boolean serverRunning = true;
+		//get port # from args[0] and start the server
+		int port = Integer.parseInt(args[0]);
+		PartialHTTP1Server server = new PartialHTTP1Server(port);
+		server.startServer();
+	}
+	//end of main
+	//========================================================================================================
+	//Server class
+	ServerSocket welcomeSocket = null;
+	Socket clientSocket = null;
+	int port;
 
-		if (args.length == 1) {
-			boolean portValid = validatePort(args[0]);
-
-			if (portValid == true) {
-				port = Integer.parseInt(args[0]);
-			}
-		}
-
-		ServerSocket m_ServerSocket = new ServerSocket(port);
-		int id = 0;
-
-		while (serverRunning) {
-			try {
-				Socket clientSocket = m_ServerSocket.accept();
-				ClientServiceThread cliThread = new ClientServiceThread(clientSocket, id++);
-				cliThread.start();
-			} catch (IOException e) {
-				System.out.println("Exception encountered on accept.  StackTrace: \n");
-				System.exit(1);
-			}
-		}
-
-		try {
-			m_ServerSocket.close();
-			System.out.println("Server has stopped.");
-		} catch (Exception e) {
-			System.out.println("Exception encountered when trying to stop server socket.");
-			System.exit(1);
-		}
+	public PartialHTTP1Server(int port) {
+		this.port = port;
 	}
 
-	private static boolean validatePort(String num) {
-		Pattern pattern = Pattern.compile("[0-9]+"); //checks if it is a digit
-		if (pattern.matcher(num).matches()) {
-			//now check to see if it is in the range of 1-65535 (valid port number) but we want above 1024
-			int portNum = Integer.parseInt(num);
-			if (portNum > 1024 && portNum <= 65535) {
-				return true;
-			} else {
-				return false;
+	public void startServer() throws IOException {
+		//open server on specified port
+		try {
+			welcomeSocket = new ServerSocket(port);
+		} catch (IOException e) {
+			System.err.println(e);
+		}
+		//create blocking queue and thread pool for server
+		int corePoolSize = 5; // always have 5 idle threads at minimum
+		int maxPoolSize = 50; // can hold up to 50 threads before 503
+		long keepAliveTime = 0;
+		BlockingQueue < Runnable > threadQueue = new ArrayBlockingQueue < Runnable > (50);
+		//ThreadFactory threadFactory = new threadFactory();
+		ThreadPoolExecutor clientThreadPool = new ThreadPoolExecutor(
+		corePoolSize,
+		maxPoolSize,
+		keepAliveTime,
+		TimeUnit.MILLISECONDS,
+		threadQueue);
+		clientThreadPool.prestartAllCoreThreads();
+		//accept new socket connections from client and create a new thread to handle request
+		while (true) {
+			try {
+				clientSocket = welcomeSocket.accept();
+				//clientThreadPool.setThreadFactory((ThreadFactory)new ServerThread(clientSocket)); // casting no no
+				clientSocket.setSoTimeout(10000); //Timeout mechanism change to 3000 is 3 seconds
+				clientThreadPool.execute(new ServerThread(clientSocket));
+			} catch (RejectedExecutionException rej) {
+				DataOutputStream outToClient = new DataOutputStream(clientSocket.getOutputStream());
+				outToClient.writeChars("HTTP/1.0 503 Service Unavailable");
+				outToClient.flush();
+				outToClient.close();
+				clientSocket.close();
+			} catch (SocketTimeoutException e) {
+				DataOutputStream outToClient = new DataOutputStream(clientSocket.getOutputStream());
+				outToClient.writeChars("HTTP/1.0 408 Request Timeout");
+				outToClient.flush();
+				outToClient.close();
+				clientSocket.close();
+			} catch (IOException e) {
+				DataOutputStream outToClient = new DataOutputStream(clientSocket.getOutputStream());
+				outToClient.writeChars("HTTP/1.0 500 Internal Error");
+				System.err.println(e);
+				outToClient.flush();
+				outToClient.close();
+				clientSocket.close();
 			}
 		}
-
-		return !pattern.matcher(num).matches();
 	}
 }
 
-class ClientServiceThread extends Thread {
+class ServerThread implements Runnable {
+	//initialize variables instantiated in the try/catch block	
 	Socket clientSocket;
-	int clientID = -1;
-	boolean running = true;
-	String currentDir = ".";
-
-	public ClientServiceThread() {
-		super();
-	}
-
-	ClientServiceThread(Socket s, int i) {
-		clientSocket = s;
-		clientID = i;
+	PartialHTTP1Server server;
+	BufferedReader inFromClient;
+	DataOutputStream outToClient;
+	PrintStream outToClient2;
+	//Setup Thread input and output to client
+	public ServerThread(Socket clientSocket) throws IOException {
+		this.clientSocket = clientSocket;
 		try {
-			clientSocket.setSoTimeout(3000);
-		} catch (Exception e) {
-			e.printStackTrace();
+			inFromClient = new BufferedReader(
+			new InputStreamReader(clientSocket.getInputStream()));
+			outToClient = new DataOutputStream(clientSocket.getOutputStream());
+			//Used only in try/catch blocks in run() where writeChars throws IOException for whatever reason
+			outToClient2 = new PrintStream(clientSocket.getOutputStream());
+
+		} catch (IOException e) {
+			//print error message and exit program
+			outToClient.writeChars("HTTP/1.0 500 Internal Error");
+			System.out.println(e);
+			outToClient.flush();
+			return;
 		}
 	}
-
-	/**
-	 * Global Strings
-	 * 
-	 */
-	public static final String ALLOW = "Allow";
-	public static final String AUTHORIZATION = "Authorization";
-	public static final String ACCEPT_CHARSET = "Accept-Charset";
-	public static final String CONTENT_ENCODING = "Content-Encoding";
-	public static final String CONTENT_LENGTH = "Content-Length";
-	public static final String CONTENT_TYPE = "Content-Type";
-	public static final String DATE = "Date";
-	public static final String EXPIRES = "Expires";
-	public static final String FROM = "From";
-	public static final String IF_MODIFIED_SINCE = "If-Modified-Since";
-	public static final String LAST_MODIFIED = "Last-Modified";
-	public static final String LOCATION = "Location";
-	public static final String PRAGMA = "Pragma";
-	public static final String REFERER = "Referer";
-	public static final String SERVER = "Server";
-	public static final String USER_AGENT = "User-Agent";
-	public static final String WWW_AUTHENTICATE = "WWW-Authenticate";
-	public static final TimeZone GMT_ZONE = TimeZone.getTimeZone("GMT");
 
 	public void run() {
-		BufferedReader in = null;
-		PrintWriter out = null;
-		System.out.println("Accepted Client : ID - " + clientID + " : Address - " + clientSocket.getInetAddress().getHostName());
-
-		//header information
-		String statusCode = "";
-		String version_use = "HTTP/X";
-		String content = null;
-		String content_type = "";
-		String content_length = "";
-		String content_encoding = "";
-		String server = "";
-		String allow = "";
-		String date = "";
-		String expires = "";
-		String modified_if_since = "";
-		String last_modified = "";
-
-		try { in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-			out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-			try {
-				clientSocket.setSoTimeout(15000);
-			} catch (IOException ioe) {
-				statusCode = "408";
-				out.print(statusCode + " Request Timeout\r\n");
-				out.print("\r\n");
+		//initialize variables instantiated in the try/catch block	
+		// tokens[0] HTTP command
+		// tokens[1] file
+		// tokens[2] HTTP version
+		String[] tokens = null;
+		String[] lineTokens = null;
+		String input = "";
+		String[] lines = null;
+		String temp = "";
+		float HTTP;
+		String[] HTTPversion;
+		int ifModLine = 0;
+		// Regular expressions for valid commands
+		String pattern = "\\b(GET|POST)\\b /\\S* \\bHTTP\\b/[0-2].[0-9]";
+		String pattern2 = "\\b(LINK|UNLINK|DELETE|PUT)\\b /\\S* \\bHTTP\\b/[0-2].[0-9]";
+		String pattern3 = "\\bHEAD\\b /\\S* \\bHTTP\\b/[0-2].[0-9]";
+		//String pattern4 = "\\bIf\\b-\\bModified\\b-\\bSince\\b:\\S.*";
+		try {
+			// read input/request from client 
+			while (true) {
+				temp = inFromClient.readLine();
+				if (temp == null || temp.isEmpty()) break;
+				input = input + temp + "\r\n";
 			}
-
-			while (running) {
-
-				String clientCommand = in .readLine();
-				System.out.println(clientCommand);
-
-				if (clientCommand.equalsIgnoreCase("QUIT")) {
-					running = false;
-					System.out.print("Stopping client thread for client : " + clientID);
-				} else {
-					//get command string
-					String cmdStr = clientCommand;
-
-					//split commandStr into two sections
-					String[] parts = cmdStr.split("\\s+");
-
-					//now requires 3 
-					if (parts.length == 3) {
-						//parts[0] = Command (GET, PUT, etc)
-						//parts[1] = Resource (file name)
-						//parts[2] = HTTP version (HTTP/0.8 <= x <= HTTP/1.0)
-						//currentDirectory is the directory that one is working in (where the server is current running)
-
-						String[] HTTPversion = parts[2].split("/");
-						float HTTP = Float.parseFloat(HTTPversion[1]);
-
-						String checkFileStr = currentDir + parts[(parts.length - 2)];
-						Path fp = Paths.get(checkFileStr);
-
-						//Check if file exist
-						File tempFile = new File(checkFileStr);
-						if (tempFile.exists() && !tempFile.isDirectory()) {
-							//valid file - - checks what command was sent (parts[0])
-							String commandSent = parts[0];
-							boolean isValidCommand = false;
-							boolean isValidVersion = true;
-
-							if (commandSent.equals("GET") || commandSent.equals("POST") || commandSent.equals("HEAD")) {
-								if (validateHTTPVersion(HTTP) == true) {
-									//200 OK - - read the file back
-									statusCode = "200";
-									isValidCommand = true;
-									version_use = parts[2];
-								} else {
-									//505 HTTP Version Not Supported
-									statusCode = "505";
-									isValidCommand = true;
-									isValidVersion = false;
-									out.write("HTTP/1.0 " + statusCode + " HTTP Version Not Supported\r\n");
-									out.write("\r\n");
-								}
-							} else {
-								// Since it is not implemented, check to see if it matches any of the following:
-								// 1) DELETE
-								// 2) PUT
-								//both will still become false for isValidCommand
-								if (commandSent.equals("DELETE") || commandSent.equals("PUT") || commandSent.equals("LINK") || commandSent.equals("UNLINK")) {
-									//valid but not implemented so use 501 Not Implemented Message
-									//501 Not Implemented
-									statusCode = "501";
-									out.write("HTTP/1.0 " + statusCode + " Not Implemented\r\n");
-									out.println("\r\n");
-								} else {
-									//not valid (mistyped command)
-									statusCode = "400";
-									out.write("HTTP/1.0 " + statusCode + " Bad Request\r\n");
-									out.println("\r\n");
-								}
-							}
-
-							//200 OK - - then read file back
-							if (isValidCommand && isValidVersion) {
-								statusCode = "200";
-								boolean isFileReadable = Files.isReadable(FileSystems.getDefault().getPath(tempFile.getAbsolutePath()));
-								if (tempFile.canRead() && isFileReadable) {
-									try {
-										String lastModified = "";
-										Date lastModified2 = new Date(tempFile.lastModified());
-										SimpleDateFormat formatter = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z");
-										formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
-										String Date2Str = formatter.format(lastModified2);
-										lastModified = Date2Str;
-										String ct = contentType(parts[1]);
-										String ex = formatter.format(getExpirationDate());
-										/* EXAMPLE RESPONSE TEMPLATE
-										 * HTTP/1.0 <status code> <explanation>
-										 * <response head>
-										 * (new line)
-										 * <response body>
-										 * Allow[x], Content-Encoding[x], Content-Length[x], Content-Type[x], Expires[x], Last-Modified[x]
-										 */
-										long bytes = tempFile.length();
-										out.write(version_use + " " + statusCode + " OK" + "\r\n");
-										out.write(CONTENT_TYPE + ": " + ct + "\r\n");
-										out.write(CONTENT_LENGTH + ": " + bytes + "\r\n");
-										out.write(LAST_MODIFIED + ": " + lastModified + "\r\n");
-										out.write(CONTENT_ENCODING + ": " + "identity" + "\r\n");
-										out.write(ALLOW + ": " + "GET, POST, HEAD" + "\r\n");
-										out.write(EXPIRES + ": " + ex + "\r\n");
-										out.write("\r\n");
-										System.out.println("BYTES: " + (int) bytes + " || bytes: " + bytes);
-										//String gCheckSum = getChecksum(tempFile, (int)bytes);
-										out.write(gCheckSum + "\r\n");
-										//out.write("\r\n");
-									} catch (Exception e) {
-										statusCode = "500";
-										out.write("HTTP/1.0 " + statusCode + " Internal Error" + "\r\n");
-										out.write("\r\n");
-										//e.printStackTrace();
-									}
-								} else {
-									// 403 Forbidden
-									statusCode = "403";
-									out.write("HTTP/1.0 " + statusCode + " Forbidden" + "\r\n");
-									out.write("\r\n");
-								}
-							}
-						} else {
-							//404 Not Found
-							statusCode = "404";
-							out.write("HTTP/1.0 " + statusCode + " Not Found" + "\r\n");
-							out.write("\r\n");
-						}
-					} else {
-						//400 Bad Request
-						statusCode = "400";
-						out.write("HTTP/1.0 " + statusCode + " Bad Request" + "\r\n");
-						out.write("\r\n");
-					}
-
-					//out.println(clientCommand);
-					out.flush();
+			//Parse input into separate lines
+			lines = input.split("\\r\\n");
+			//Parse 1st line of input by spaces to get command, file, version
+			tokens = lines[0].split(" ");
+			//Variables for regular expression matches
+			boolean matchesGET = Pattern.matches(pattern, lines[0]); // also matches POST
+			boolean matchesNotImplemented = Pattern.matches(pattern2, lines[0]);
+			boolean matchesHEAD = Pattern.matches(pattern3, lines[0]);
+			boolean matchesIfMod = false;
+			for (String s: lines) {
+				lineTokens = s.split(" ");
+				ifModLine++;
+				if (lineTokens[0].equals("If-Modified-Since:")) {
+					matchesIfMod = true;
+					break;
 				}
 			}
-		} catch (Exception e) {
-			System.out.println("Error when using buffer reader and writer.");
-			e.printStackTrace();
+			//matches valid HTTP command
+			if (matchesGET || matchesHEAD) {
+				//check version of HTTP version is supported
+				HTTPversion = tokens[2].split("/");
+				HTTP = Float.parseFloat(HTTPversion[1]);
+				if (HTTP > 1) {
+					throw new UnsupportedOperationException();
+				}
+				//find the path to the file
+				File curDir = new File(".");
+				String dir = curDir.getAbsolutePath().substring(0, curDir.getAbsolutePath().length() - 2);
+				File file = new File(dir + tokens[1]);
+
+				//initialize variables instantiated in the try/catch block	
+				BufferedReader fileReader;
+				ArrayList < String > list;
+				String line;
+				if (file.canRead()) {
+					try {
+						// read from file and print contents to client
+						fileReader = new BufferedReader(new InputStreamReader(new FileInputStream(file)));
+						list = new ArrayList < String > ();
+						while ((line = fileReader.readLine()) != null) {
+							list.add(line);
+						}
+						// find header information
+						// Content-Type get mime type of the file
+						String contentType = new MimetypesFileTypeMap().getContentType(dir + tokens[1]);
+						// check for supported file type 
+						if (!(contentType.equals("text/html") || contentType.equals("text/plain") || contentType.equals("image/gif") || contentType.equals("image/jpeg") || contentType.equals("image/png") || contentType.equals("application/octet-stream") || contentType.equals("application/pdf") || contentType.equals("application/x-gzip") || contentType.equals("application/zip"))) {
+							contentType = "application/octet-stream";
+						}
+
+						// Content-Length: length of the file 
+						long fileLength = file.length();
+						// Last-Modified: when the file was last modified
+						Date dateModified = new Date(file.lastModified());
+						SimpleDateFormat formatter = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z");
+						formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+						String Date2Str = formatter.format(dateModified);
+						String lastModified = Date2Str;
+						// Expires: set some future expiration date
+						Calendar ex = Calendar.getInstance(TimeZone.getTimeZone("GMT"));
+						ex.add(Calendar.DAY_OF_MONTH, 10);
+						String expireDate = formatter.format(ex.getTime());
+						//check if modified condition
+						Date ifModDate = null;
+						if (!matchesHEAD && matchesIfMod) {
+							String ifModDateStr = lines[ifModLine - 1].substring(19); //length of If-Modified-Since:
+							Calendar ifModCalDate = Calendar.getInstance();
+							try {
+								ifModCalDate.setTime(formatter.parse(ifModDateStr));
+								ifModDate = ifModCalDate.getTime();
+								if (dateModified.before(ifModDate)) {
+									outToClient.writeChars("HTTP/1.0 304 Not Modified\r");
+									outToClient.writeChars("Last-Modified: " + lastModified + "\r");
+									outToClient.writeChars("Expires: " + expireDate + "\r");
+									fileReader.close();
+								}
+							} catch (ParseException pe) {}
+						}
+
+						if (!dateModified.before(ifModDate)) {
+							// print Header information
+							outToClient.writeChars("HTTP/1.0 200 OK" + "\r"); // header to be added
+							outToClient.writeChars("Content-Type: " + contentType + "\r");
+							outToClient.writeChars("Content-Length: " + fileLength + "\r");
+							outToClient.writeChars("Last-Modified: " + lastModified + "\r");
+							outToClient.writeChars("Content-Encoding: identity\r");
+							outToClient.writeChars("Allow: GET, POST, HEAD\r");
+							outToClient.writeChars("Expires: " + expireDate + "\r");
+							outToClient.writeChars("\r");
+							// if command/request is get or post get file contents
+							if (matchesGET) {
+								for (String s: list) {
+									outToClient.writeBytes(s);
+								}
+							}
+							fileReader.close();
+						}
+					} catch (IOException e) {
+						outToClient.writeChars("HTTP/1.0 404 Not Found");
+					}
+				} else {
+					outToClient.writeChars("HTTP/1.0 403 Forbidden");
+				}
+			} else if (matchesNotImplemented) {
+				outToClient.writeChars("HTTP/1.0 501 Not Implemented");
+			} else {
+				outToClient.writeChars("HTTP/1.0 400 Bad Request");
+			}
+		} catch (UnsupportedOperationException e) {
+			outToClient2.println("HTTP/1.0 505 HTTP Version Not Supported");
+		} catch (SocketTimeoutException e) {
+			outToClient2.println("HTTP/1.0 408 Request Timeout");
+		} catch (IOException e) {
+			outToClient2.println("HTTP/1.0 500 Internal Error");
+			System.out.println(e);
 		} finally {
+			//flush to make sure output is sent before closing
+			//wait from half a second
+			//close everything
 			try {
-				Thread.sleep(500); in .close();
-				out.close();
+				outToClient.flush();
+				Thread.sleep(500);
+				inFromClient.close();
+				outToClient.close();
 				clientSocket.close();
-				System.out.println("Client " + clientID + " has just disconnected.");
+				return;
 			} catch (InterruptedException ie) {
-				System.out.println("Error waiting 500 miliseconds (0.5 seconds).");
-				try { in .close();
-					out.close();
+				try {
+					inFromClient.close();
+					outToClient.close();
 					clientSocket.close();
 				} catch (IOException e) {
-					System.out.println("Something went wrong closing the Client Socket.\n");
+					System.err.println(e);
 				}
 			} catch (IOException e) {
-				System.out.println("Something went wrong closing the Client Socket.\n");
+				System.err.println(e);
 			}
 		}
-	}
-
-	/** 
-	 * This function returns a boolean value depending on if the float is less than or equal to 1.0.
-	 * @return Boolean
-	 * 
-	 */
-	private boolean validateHTTPVersion(float ver) {
-		if (ver > 1.0) {
-			return false;
-		} else {
-			return true;
-		}
-	}
-
-	private static String getChecksum(File fileName, int n) {
-		try {
-			MessageDigest md = MessageDigest.getInstance("SHA-256");
-			FileInputStream fis = new FileInputStream(fileName.getAbsolutePath());
-
-			byte[] dataBytes = new byte[n];
-			int nread = 0;
-			while ((nread = fis.read(dataBytes)) != -1) {
-				md.update(dataBytes, 0, nread);
-			}
-			byte[] mdbytes = md.digest();
-
-			StringBuffer sb = new StringBuffer();
-			for (int i = 0; i < mdbytes.length; i++) {
-				sb.append(Integer.toString((mdbytes[i] & 0xff) + 0x100, 16).substring(1));
-			}
-			return sb.toString();
-		} catch (NoSuchAlgorithmException nsae) {
-			//nsae.printStackTrace();
-		} catch (FileNotFoundException fnfe) {
-			//fnfe.printStackTrace();
-		} catch (IOException ioe) {
-			//ioe.printStackTrace();
-		}
-		return "";
-	}
-
-	private static String sha256(String input) throws NoSuchAlgorithmException {
-		MessageDigest mDigest = MessageDigest.getInstance("SHA256");
-		byte[] result = mDigest.digest(input.getBytes());
-		StringBuffer sb = new StringBuffer();
-		for (int i = 0; i < result.length; i++) {
-			sb.append(Integer.toString((result[i] & 0xff) + 0x100, 16).substring(1));
-		}
-
-		return sb.toString();
-	}
-
-	/** 
-	 * This function returns the Content-Type of the file. It accepts one String parameter.
-	 * @return Content-Type
-	 * 
-	 */
-	private static String contentType(String fileName) {
-		if (fileName.endsWith(".htm") || fileName.endsWith(".html")) {
-			return "text/html";
-		}
-		if (fileName.endsWith(".jpg") || fileName.endsWith(".jpe") || fileName.endsWith(".jpeg")) {
-			return "image/jpeg";
-		}
-		if (fileName.endsWith(".gif")) {
-			return "image/gif";
-		}
-		if (fileName.endsWith(".png")) {
-			return "image/png";
-		}
-		if (fileName.endsWith(".txt")) {
-			return "text/plain";
-		}
-		if (fileName.endsWith(".pdf")) {
-			return "application/pdf";
-		}
-		if (fileName.endsWith(".gz") || fileName.endsWith(".gzip")) {
-			return "application/x-gzip";
-		}
-		if (fileName.endsWith(".zip")) {
-			return "application/zip";
-		}
-		if (fileName.endsWith(".tar")) {
-			return "application/x-tar";
-		}
-
-		return "application/octet-stream";
-	}
-
-
-	/** 
-	 * This function returns the Expires date of the file which is set to expire 48 hours (2 days) later.
-	 * @return Expires
-	 * 
-	 */
-	private static Date getExpirationDate() {
-		/**
-		 * This will be used in the future, but for now the tester wants it hard coded.
-		 * "Expires: a future date"
-		 */
-		int days = 2;
-		Calendar c = Calendar.getInstance();
-		c.setTime(new Date());
-		c.add(Calendar.DATE, days);
-		Date ct = c.getTime();
-		return ct;
-	}
-
-	private static String getContentEncoding() {
-		String ce = "identity";
-		return ce;
-	}
-
-	private static String getAllow() {
-		String al = "GET, POST, HEAD";
-		return al;
 	}
 }
