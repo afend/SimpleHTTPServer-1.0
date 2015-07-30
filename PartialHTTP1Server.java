@@ -13,8 +13,6 @@ import java.util.Calendar;
 import java.util.TimeZone;
 import java.util.concurrent.*;
 
-import javax.activation.MimetypesFileTypeMap;
-
 public class PartialHTTP1Server {
 	public static void main(String[] args) throws Exception {
 		//get port # from args[0] and start the server
@@ -44,8 +42,7 @@ public class PartialHTTP1Server {
 		int corePoolSize = 5; // always have 5 idle threads at minimum
 		int maxPoolSize = 50; // can hold up to 50 threads before 503
 		long keepAliveTime = 0;
-		BlockingQueue < Runnable > threadQueue = new ArrayBlockingQueue < Runnable > (50);
-		//ThreadFactory threadFactory = new threadFactory();
+		BlockingQueue < Runnable > threadQueue = new SynchronousQueue < > ();
 		ThreadPoolExecutor clientThreadPool = new ThreadPoolExecutor(
 		corePoolSize,
 		maxPoolSize,
@@ -57,24 +54,26 @@ public class PartialHTTP1Server {
 		while (true) {
 			try {
 				clientSocket = welcomeSocket.accept();
-				//clientThreadPool.setThreadFactory((ThreadFactory)new ServerThread(clientSocket)); // casting no no
-				clientSocket.setSoTimeout(10000); //Timeout mechanism change to 3000 is 3 seconds
+				clientSocket.setSoTimeout(3000);
 				clientThreadPool.execute(new ServerThread(clientSocket));
 			} catch (RejectedExecutionException rej) {
-				DataOutputStream outToClient = new DataOutputStream(clientSocket.getOutputStream());
-				outToClient.writeChars("HTTP/1.0 503 Service Unavailable");
+				PrintStream outToClient = new PrintStream(clientSocket.getOutputStream());
+				outToClient.println("HTTP/1.0 503 Service Unavailable\r\n");
+				outToClient.println("\r\n");
 				outToClient.flush();
 				outToClient.close();
 				clientSocket.close();
 			} catch (SocketTimeoutException e) {
-				DataOutputStream outToClient = new DataOutputStream(clientSocket.getOutputStream());
-				outToClient.writeChars("HTTP/1.0 408 Request Timeout");
+				PrintStream outToClient = new PrintStream(clientSocket.getOutputStream());
+				outToClient.println("HTTP/1.0 408 Request Timeout\r\n");
+				outToClient.println("\r\n");
 				outToClient.flush();
 				outToClient.close();
 				clientSocket.close();
 			} catch (IOException e) {
-				DataOutputStream outToClient = new DataOutputStream(clientSocket.getOutputStream());
-				outToClient.writeChars("HTTP/1.0 500 Internal Error");
+				PrintStream outToClient = new PrintStream(clientSocket.getOutputStream());
+				outToClient.println("HTTP/1.0 500 Internal Error\r\n");
+				outToClient.println("\r\n");
 				System.err.println(e);
 				outToClient.flush();
 				outToClient.close();
@@ -89,21 +88,22 @@ class ServerThread implements Runnable {
 	Socket clientSocket;
 	PartialHTTP1Server server;
 	BufferedReader inFromClient;
-	DataOutputStream outToClient;
-	PrintStream outToClient2;
+	PrintStream outToClient;
+	DataOutputStream outToClient2;
+	PrintStream outToClient3;
 	//Setup Thread input and output to client
 	public ServerThread(Socket clientSocket) throws IOException {
 		this.clientSocket = clientSocket;
 		try {
 			inFromClient = new BufferedReader(
 			new InputStreamReader(clientSocket.getInputStream()));
-			outToClient = new DataOutputStream(clientSocket.getOutputStream());
-			//Used only in try/catch blocks in run() where writeChars throws IOException for whatever reason
-			outToClient2 = new PrintStream(clientSocket.getOutputStream());
-
+			outToClient = new PrintStream(clientSocket.getOutputStream());
+			outToClient2 = new DataOutputStream(clientSocket.getOutputStream());
+			outToClient3 = new PrintStream(clientSocket.getOutputStream());
 		} catch (IOException e) {
 			//print error message and exit program
-			outToClient.writeChars("HTTP/1.0 500 Internal Error");
+			outToClient.println("HTTP/1.0 500 Internal Error\r\n");
+			outToClient.println("\r\n");
 			System.out.println(e);
 			outToClient.flush();
 			return;
@@ -115,19 +115,22 @@ class ServerThread implements Runnable {
 		// tokens[0] HTTP command
 		// tokens[1] file
 		// tokens[2] HTTP version
+		Integer ctLength = null;
 		String[] tokens = null;
 		String[] lineTokens = null;
 		String input = "";
 		String[] lines = null;
 		String temp = "";
+                String contentType2 = "";
 		float HTTP;
 		String[] HTTPversion;
 		int ifModLine = 0;
+		Boolean printHeader = true;
 		// Regular expressions for valid commands
-		String pattern = "\\b(GET|POST)\\b /\\S* \\bHTTP\\b/[0-2].[0-9]";
+		String pattern = "\\bGET\\b /\\S* \\bHTTP\\b/[0-2].[0-9]";
 		String pattern2 = "\\b(LINK|UNLINK|DELETE|PUT)\\b /\\S* \\bHTTP\\b/[0-2].[0-9]";
 		String pattern3 = "\\bHEAD\\b /\\S* \\bHTTP\\b/[0-2].[0-9]";
-		//String pattern4 = "\\bIf\\b-\\bModified\\b-\\bSince\\b:\\S.*";
+		String pattern4 = "\\bGET\\b /\\S* \\bHTTP\\b/[0-2].[0-9]";
 		try {
 			// read input/request from client 
 			while (true) {
@@ -143,7 +146,12 @@ class ServerThread implements Runnable {
 			boolean matchesGET = Pattern.matches(pattern, lines[0]); // also matches POST
 			boolean matchesNotImplemented = Pattern.matches(pattern2, lines[0]);
 			boolean matchesHEAD = Pattern.matches(pattern3, lines[0]);
+			boolean matchesPOST = Pattern.matches(pattern4, lines[0]);
 			boolean matchesIfMod = false;
+			boolean postErrorCheck = true;
+			boolean postErrorCheck2 = true;
+                        
+
 			for (String s: lines) {
 				lineTokens = s.split(" ");
 				ifModLine++;
@@ -151,9 +159,13 @@ class ServerThread implements Runnable {
 					matchesIfMod = true;
 					break;
 				}
+                                if (lineTokens[0].equals("Content-Type:")) {
+                                        contentType2 = tokens[1];
+                                }
+
 			}
 			//matches valid HTTP command
-			if (matchesGET || matchesHEAD) {
+			if (matchesPOST || matchesGET || matchesHEAD) {
 				//check version of HTTP version is supported
 				HTTPversion = tokens[2].split("/");
 				HTTP = Float.parseFloat(HTTPversion[1]);
@@ -169,22 +181,19 @@ class ServerThread implements Runnable {
 				BufferedReader fileReader;
 				ArrayList < String > list;
 				String line;
+
 				if (file.canRead()) {
 					try {
 						// read from file and print contents to client
 						fileReader = new BufferedReader(new InputStreamReader(new FileInputStream(file)));
 						list = new ArrayList < String > ();
+
 						while ((line = fileReader.readLine()) != null) {
 							list.add(line);
 						}
 						// find header information
 						// Content-Type get mime type of the file
-						String contentType = new MimetypesFileTypeMap().getContentType(dir + tokens[1]);
-						// check for supported file type 
-						if (!(contentType.equals("text/html") || contentType.equals("text/plain") || contentType.equals("image/gif") || contentType.equals("image/jpeg") || contentType.equals("image/png") || contentType.equals("application/octet-stream") || contentType.equals("application/pdf") || contentType.equals("application/x-gzip") || contentType.equals("application/zip"))) {
-							contentType = "application/octet-stream";
-						}
-
+						String contentType = getContentType(dir + tokens[1]);
 						// Content-Length: length of the file 
 						long fileLength = file.length();
 						// Last-Modified: when the file was last modified
@@ -206,49 +215,95 @@ class ServerThread implements Runnable {
 								ifModCalDate.setTime(formatter.parse(ifModDateStr));
 								ifModDate = ifModCalDate.getTime();
 								if (dateModified.before(ifModDate)) {
-									outToClient.writeChars("HTTP/1.0 304 Not Modified\r");
-									outToClient.writeChars("Last-Modified: " + lastModified + "\r");
-									outToClient.writeChars("Expires: " + expireDate + "\r");
+									outToClient.println("HTTP/1.0 304 Not Modified\r");
+									outToClient.println("Last-Modified: " + lastModified + "\r");
+									outToClient.println("Expires: " + expireDate + "\r");
+									outToClient.println("\r");
+									printHeader = false;
 									fileReader.close();
 								}
 							} catch (ParseException pe) {}
 						}
 
-						if (!dateModified.before(ifModDate)) {
+						//checks if post should throw an error immediately
+						if (matchesPOST) {
+							if (file.canExecute()) {
+								if (ctLength == null && (!contentType2.equals("application/x-www-form-urlencoded"))) {
+									outToClient.println("HTTP/1.0 411 Length Required");
+									postErrorCheck = false;
+									postErrorCheck2 = false;
+								} else {
+									if (!contentType2.equals("application/x-www-form-urlencoded")) {
+										outToClient.println("HTTP/1.0 500 Internal Server Error\r\n");
+										outToClient.println("\r\n");
+										postErrorCheck = false;
+									}
+									if (ctLength == null) {
+										outToClient.println("HTTP/1.0 411 Length Required");
+										outToClient.println("\r\n");
+										postErrorCheck2 = false;
+									}
+								}
+							} else {
+								outToClient.println("HTTP/1.0 403 Forbidden\r\n");
+								outToClient.println("\r\n");
+							}
+						}
+
+						if (printHeader && postErrorCheck && postErrorCheck2) {
+
 							// print Header information
-							outToClient.writeChars("HTTP/1.0 200 OK" + "\r"); // header to be added
-							outToClient.writeChars("Content-Type: " + contentType + "\r");
-							outToClient.writeChars("Content-Length: " + fileLength + "\r");
-							outToClient.writeChars("Last-Modified: " + lastModified + "\r");
-							outToClient.writeChars("Content-Encoding: identity\r");
-							outToClient.writeChars("Allow: GET, POST, HEAD\r");
-							outToClient.writeChars("Expires: " + expireDate + "\r");
-							outToClient.writeChars("\r");
+							outToClient.println("HTTP/1.0 200 OK" + "\r");
+							outToClient.println("Content-Type: " + contentType + "\r");
+							outToClient.println("Content-Length: " + fileLength + "\r");
+							outToClient.println("Last-Modified: " + lastModified + "\r");
+							outToClient.println("Content-Encoding: identity\r");
+							outToClient.println("Allow: GET, POST, HEAD\r");
+							outToClient.println("Expires: " + expireDate + "\r");
+							outToClient.println("\r");
 							// if command/request is get or post get file contents
 							if (matchesGET) {
-								for (String s: list) {
-									outToClient.writeBytes(s);
+								if (contentType.equals("text/plain")) {
+									for (String s: list) {
+										outToClient2.writeBytes(s);
+									}
+								} else {
+									byte[] bytes = convertDocToByteArray(dir + tokens[1]);
+									outToClient.write(bytes);
 								}
 							}
-							fileReader.close();
+
 						}
+						fileReader.close();
 					} catch (IOException e) {
-						outToClient.writeChars("HTTP/1.0 404 Not Found");
+						outToClient.println("HTTP/1.0 404 Not Found\r\n");
+						outToClient.println("\r\n");
 					}
 				} else {
-					outToClient.writeChars("HTTP/1.0 403 Forbidden");
+					if (!file.exists()) {
+						outToClient.println("HTTP/1.0 404 Not Found\r\n");
+						outToClient.println("\r\n");
+					} else {
+						outToClient.println("HTTP/1.0 403 Forbidden\r\n");
+						outToClient.println("\r\n");
+					}
 				}
 			} else if (matchesNotImplemented) {
-				outToClient.writeChars("HTTP/1.0 501 Not Implemented");
+				outToClient.println("HTTP/1.0 501 Not Implemented\r\n");
+				outToClient.println("\r\n");
 			} else {
-				outToClient.writeChars("HTTP/1.0 400 Bad Request");
+				outToClient.println("HTTP/1.0 400 Bad Request\r\n");
+				outToClient.println("\r\n");
 			}
 		} catch (UnsupportedOperationException e) {
-			outToClient2.println("HTTP/1.0 505 HTTP Version Not Supported");
+			outToClient3.print("HTTP/1.0 505 HTTP Version Not Supported\r\n");
+			outToClient3.print("\r\n");
 		} catch (SocketTimeoutException e) {
-			outToClient2.println("HTTP/1.0 408 Request Timeout");
+			outToClient3.print("HTTP/1.0 408 Request Timeout\r\n");
+			outToClient3.print("\r\n");
 		} catch (IOException e) {
-			outToClient2.println("HTTP/1.0 500 Internal Error");
+			outToClient3.print("HTTP/1.0 500 Internal Error\r\n");
+			outToClient3.print("\r");
 			System.out.println(e);
 		} finally {
 			//flush to make sure output is sent before closing
@@ -273,5 +328,51 @@ class ServerThread implements Runnable {
 				System.err.println(e);
 			}
 		}
+	}
+	// find type of file
+	private static String getContentType(String fileName) {
+		if (fileName.endsWith(".htm") || fileName.endsWith(".html")) {
+			return "text/html";
+		}
+		if (fileName.endsWith(".jpg") || fileName.endsWith(".jpe") || fileName.endsWith(".jpeg")) {
+			return "image/jpeg";
+		}
+		if (fileName.endsWith(".gif")) {
+			return "image/gif";
+		}
+		if (fileName.endsWith(".png")) {
+			return "image/png";
+		}
+		if (fileName.endsWith(".txt")) {
+			return "text/plain";
+		}
+		if (fileName.endsWith(".pdf")) {
+			return "application/pdf";
+		}
+		if (fileName.endsWith(".gz") || fileName.endsWith(".gzip")) {
+			return "application/x-gzip";
+		}
+		if (fileName.endsWith(".zip")) {
+			return "application/zip";
+		}
+		if (fileName.endsWith(".tar")) {
+			return "application/x-tar";
+		}
+                if (fileName.endsWith(".cgi")) {
+			return "application/x-www-form-urlencoded";
+		}
+		return "application/octet-stream";
+	}
+
+	public static byte[] convertDocToByteArray(String sourcePath) throws IOException {
+
+		File file = new File(sourcePath);
+		byte[] bFile = new byte[(int) file.length()];
+
+		FileInputStream fileInputStream = new FileInputStream(file);
+		fileInputStream.read(bFile);
+		fileInputStream.close();
+
+		return bFile;
 	}
 }
