@@ -1,3 +1,5 @@
+package partialhttp1server;
+
 /* Adam Fendler & Matthew Eder 
  * Internet Technology CS352 Summer 2015 Rutgers
  * Project 1: HTTP 1.0 Webserver
@@ -372,7 +374,33 @@ class ServerThread implements Runnable {
 		FileInputStream fileInputStream = new FileInputStream(file);
 		fileInputStream.read(bFile);
 		fileInputStream.close();
-
+                
+                String decoded = new String(bFile, "UTF-8");
+                String recode = "";
+                recode = decodemyURL(decoded);
+                
 		return bFile;
 	}
+        
+        public static byte[] convertDocToByteArray2(String sourcePath) throws IOException {
+                String decoded = "";
+		File file = new File(sourcePath);
+		byte[] bFile = new byte[(int) file.length()];
+
+		FileInputStream fileInputStream = new FileInputStream(file);
+		fileInputStream.read(bFile);
+		fileInputStream.close();
+                
+                String makestring = new String(bFile, "UTF-8");
+                decoded = decodemyURL(makestring);
+                byte[] b = decoded.getBytes("UTF-8");
+                
+		return b;
+	}
+        
+        
+        public static String decodemyURL(String url) throws UnsupportedEncodingException {
+            String result = "";
+            return result = java.net.URLDecoder.decode(url, "UTF-8");
+        }
 }
